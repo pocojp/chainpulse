@@ -11,8 +11,10 @@ from rich.console import Console
 from rich.live import Live
 
 from . import __version__
+from .analysis import analyze_chains
 from .chains import CHAINS, DEFAULT_CHAINS, get_chain
 from .fetch import ERC20_TRANSFER_GAS, NATIVE_TRANSFER_GAS, fetch_all
+from .mimo import MIMO_DEFAULT_MODEL, MiMoClient, MiMoError
 from .render import build_table, stats_to_dict
 
 app = typer.Typer(
@@ -70,6 +72,14 @@ _OPT_ETH = typer.Option(None, "--eth-price", help="Override ETH USD price.")
 _OPT_MATIC = typer.Option(None, "--matic-price", help="Override POL USD price.")
 _OPT_MNT = typer.Option(None, "--mnt-price", help="Override MNT USD price.")
 _OPT_LIST = typer.Option(False, "--list", help="List available chain slugs and exit.")
+_OPT_ANALYZE = typer.Option(
+    False, "--analyze", "-a", help="Analyze chain stats with Xiaomi MiMo AI."
+)
+_OPT_MIMO_MODEL = typer.Option(
+    MIMO_DEFAULT_MODEL,
+    "--mimo-model",
+    help="MiMo model for --analyze (mimo-7b-rl, mimo-coder, mimo-v2-pro).",
+)
 _OPT_VERSION = typer.Option(
     None, "--version", "-V", callback=_version_callback, is_eager=True, help="Show version and exit."
 )
@@ -88,6 +98,8 @@ def main(
     matic_price: float | None = _OPT_MATIC,
     mnt_price: float | None = _OPT_MNT,
     list_chains: bool = _OPT_LIST,
+    analyze: bool = _OPT_ANALYZE,
+    mimo_model: str = _OPT_MIMO_MODEL,
     version: bool | None = _OPT_VERSION,
 ) -> None:
     """Show gas, latest block, and transfer cost for many EVM chains side by side."""
@@ -101,12 +113,20 @@ def main(
     gas_units = ERC20_TRANSFER_GAS if erc20 else NATIVE_TRANSFER_GAS
 
     try:
-        asyncio.run(_run(selected, watch, json_out, gas_units, timeout))
+        asyncio.run(_run(selected, watch, json_out, gas_units, timeout, analyze, mimo_model))
     except KeyboardInterrupt:
         err_console.print("[dim]stopped.[/dim]")
 
 
-async def _run(selected, watch: float, json_out: bool, gas_units: int, timeout: float) -> None:
+async def _run(
+    selected,
+    watch: float,
+    json_out: bool,
+    gas_units: int,
+    timeout: float,
+    analyze: bool,
+    mimo_model: str,
+) -> None:
     if json_out:
         rows = await fetch_all(selected, timeout=timeout)
         payload = [stats_to_dict(r, gas_units=gas_units) for r in rows]
@@ -116,6 +136,8 @@ async def _run(selected, watch: float, json_out: bool, gas_units: int, timeout: 
     if watch <= 0:
         rows = await fetch_all(selected, timeout=timeout)
         console.print(build_table(rows, gas_units=gas_units))
+        if analyze:
+            await _run_analysis(rows, gas_units, mimo_model)
         return
 
     with Live(
@@ -131,6 +153,25 @@ async def _run(selected, watch: float, json_out: bool, gas_units: int, timeout: 
                 await asyncio.sleep(watch)
             except asyncio.CancelledError:
                 break
+
+    # After watch loop exits, run analysis on last snapshot
+    if analyze:
+        await _run_analysis(rows, gas_units, mimo_model)
+
+
+async def _run_analysis(rows, gas_units: int, mimo_model: str) -> None:
+    """Call MiMo to analyze chain stats and print the result."""
+    try:
+        async with MiMoClient(model=mimo_model) as client:
+            console.print()
+            console.print("[bold cyan]Asking MiMo for analysis...[/bold cyan]")
+            analysis = await analyze_chains(client, rows, gas_units=gas_units)
+            console.print()
+            console.print(analysis)
+            console.print()
+    except MiMoError as e:
+        err_console.print(f"[red]MiMo error: {e}[/red]")
+        err_console.print("[dim]Set MIMO_API_KEY env var to use --analyze.[/dim]")
 
 
 if __name__ == "__main__":

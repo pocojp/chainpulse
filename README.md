@@ -21,6 +21,7 @@ Polls 12 chains in parallel and prints gas price, latest block, block age, tx co
 - RPC latency (catches slow endpoints)
 - `--watch` mode that refreshes in place
 - `--json` for piping into jq, dashboards, or shell scripts
+- **`--analyze`** — AI-powered anomaly detection and chain recommendations via [Xiaomi MiMo](https://platform.xiaomimimo.com/) models
 - Public RPCs only. **Zero API keys.** Multiple endpoints per chain with automatic fallback so one flaky provider never blanks a row.
 
 ## Install
@@ -116,6 +117,31 @@ Block explorers answer #1 and #2 one chain at a time. `chainpulse` answers all t
   }
 ]
 ```
+
+## AI Analysis (MiMo)
+
+chainpulse integrates [Xiaomi MiMo](https://platform.xiaomimimo.com/) for AI-powered anomaly detection and chain recommendations. After fetching on-chain data, `--analyze` sends the stats to MiMo for:
+
+- **Anomaly detection** — flags gas spikes, stale blocks, slow RPCs, chain errors
+- **Landscape summary** — cheapest chains, most active networks, notable events
+- **Recommendation** — best chain(s) for a low-cost transaction right now
+
+```bash
+# Set your MiMo API key
+export MIMO_API_KEY="sk-your-key-here"
+
+# Run with AI analysis
+chainpulse --analyze
+
+# Use a specific MiMo model
+chainpulse --analyze --mimo-model mimo-coder
+
+# Works with all modes
+chainpulse -c base -c arbitrum --analyze
+chainpulse --watch 10 --analyze
+```
+
+Supported models: `mimo-7b-rl` (default), `mimo-coder`, `mimo-v2-pro`. Get your API key at [platform.xiaomimimo.com](https://platform.xiaomimimo.com/).
 
 ## Adding a chain
 
